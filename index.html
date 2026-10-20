@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水域安全達人互動測驗</title>
+    <!-- p5.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0b192c;
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+<script>
+// ==========================================
+// 水域安全宣導測驗系統 (Water Safety Quiz)
+// p5.js Full Interactive Implementation
+// ==========================================
+
+// Sound Synthesizer using Web Audio API
+class SoundSystem {
+    constructor() {
+        this.ctx = null;
+        this.muted = false;
+    }
+
+    init() {
+        if (!this.ctx) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioContext();
+        }
+    }
+
+    playTone(freq, type = 'sine', duration = 0.15, gainVal = 0.1) {
+        if (this.muted) return;
+        this.init();
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+        try {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+            gain.gain.setValueAtTime(gainVal, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start();
+            osc.stop(this.ctx.currentTime + duration);
+        } catch(e) {}
+    }
+
+    playPick() {
+        this.playTone(523.25, 'triangle', 0.1, 0.15); // C5
+    }
+
+    playDrop() {
+        this.playTone(659.25, 'sine', 0.12, 0.2); // E5
+    }
+
+    playSuccess() {
+        this.playTone(523.25, 'sine', 0.1, 0.15);
+        setTimeout(() => this.playTone(659.25, 'sine', 0.1, 0.15), 100);
+        setTimeout(() => this.playTone(783.99, 'sine', 0.2, 0.2), 200);
+    }
+
+    playFirework() {
+        if (this.muted) return;
+        this.init();
+        this.playTone(150 + Math.random() * 200, 'sawtooth', 0.2, 0.05);
+    }
+}
+
+const audio = new SoundSystem();
+
+// Application States
+const STATE_START = 0;
+const STATE_QUIZ = 1;
+const STATE_RESULT = 2;
+let currentState = STATE_START;
+
+// Quiz Data Structure (4 Questions, 6 Options each)
+const quizData = [
+    {
+        id: 1,
+        title: "問題 1：同伴不小心落水時，正確的救生優先順序？",
+        prompt: "請將最正確的應變口訣拖曳至下方答題框中：",
+        graphicType: "RESCUE_SCENE",
+        options: [
+            "叫叫伸拋劃 (救溺五步)",
+            "直接跳入水中將同伴拉起",
+            "手拉手組成人鏈下水救援",
+            "脫下衣服綁成繩子跳水救人",
+            "在岸上圍觀並大聲哭喊",
+            "默默離開去尋找其他人幫忙"
+        ],
+        correctIndex: 0,
+        explanation: "救溺五步『叫叫伸拋劃』：叫(大聲呼救)、叫(打119/118)、伸(利用延伸物)、拋(拋投漂浮物)、劃(利用划行工具)。切記不可貿然下水！"
+    },
+    {
+        id: 2,
+        title: "問題 2：夏日前往溪流或海邊戲水，應選擇何種安全場域？",
+        prompt: "請選擇最安全的戲水場所與條件：",
+        graphicType: "SAFE_ZONE",
+        options: [
+            "設有合格救生員與警示標示場域",
+            "立有「危險水域禁止游泳」告示牌處",
+            "無人看管但看起來清涼平靜的深潭",
+            "水流湍急但風景優美的溪谷",
+            "廢棄採石場形成的水塘",
+            "颱風過後漂流木許多的海灘"
+        ],
+        correctIndex: 0,
+        explanation: "戲水務必選擇有合法救生員駐守且開放的安全水域，切勿至設有危險告示牌或無人看管的水域。"
+    },
+    {
+        id: 3,
+        title: "問題 3：在海邊戲水時，如果遇到強烈向外海拉扯的「離岸流」，該如何自救？",
+        prompt: "請將正確的離岸流應對方式拖到答題框：",
+        graphicType: "RIP_CURRENT",
+        options: [
+            "保持冷靜漂浮，沿平行海岸方向游出",
+            "拼命逆著水流直接向岸邊猛游",
+            "緊張慌亂不斷揮手並嘗試沉入水底",
+            "放棄求生隨波逐流不作任何呼救",
+            "脫掉救生衣減輕重量再游泳",
+            "試圖潛入海底抓住底部的石頭"
+        ],
+        correctIndex: 0,
+        explanation: "遇到離岸流時切勿逆流向岸邊游（會耗盡體力），應保持冷靜仰漂，沿著「平行海岸線」方向游出水流區後再折返回岸邊。"
+    },
+    {
+        id: 4,
+        title: "問題 4：從事水上活動（如 SUP、划船、戲水）時，最標準的安全裝備為何？",
+        prompt: "請選擇最符合安全規範的裝備組合：",
+        graphicType: "EQUIPMENT",
+        options: [
+            "穿著合身且扣緊扣環的合格救生衣",
+            "只攜帶一般塑膠充氣游泳圈",
+            "穿著重型牛仔褲與運動鞋",
+            "完全不穿戴任何漂浮工具",
+            "僅手拿一般充氣氣球",
+            "身穿厚重棉質外套以防曬"
+        ],
+        correctIndex: 0,
+        explanation: "水上活動必須全程穿著合身並扣緊安全扣環的合格救生衣，一般充氣泳圈容易破損或脫落，不可替代救生衣。"
+    }
+];
+
+let currentQIndex = 0;
+let userAnswers = new Array(quizData.length).fill(null); // Stores selected option string or null
+
+// Interactive UI Layout Elements
+let optionCards = [];
+let dropZone = { x: 0, y: 0, w: 0, h: 0 };
+let draggedCard = null;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+
+// Buttons
+let nextBtn = { x: 0, y: 0, w: 0, h: 0, label: "下一題" };
+let prevBtn = { x: 0, y: 0, w: 0, h: 0, label: "上一題" };
+let submitBtn = { x: 0, y: 0, w: 0, h: 0, label: "交卷看成績" };
+let restartBtn = { x: 0, y: 0, w: 0, h: 0, label: "重新測驗" };
+let soundToggleBtn = { x: 0, y: 0, r: 22 };
+
+// Particle Firework System
+let fireworks = [];
+let gravity;
+
+// Background Animation Variables
+let waveOffset = 0;
+let bubbles = [];
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    textFont('PingFang TC, Microsoft JhengHei, sans-serif');
+    gravity = createVector(0, 0.15);
+
+    // Create ambient background bubbles
+    for (let i = 0; i < 30; i++) {
+        bubbles.push({
+            x: random(width),
+            y: random(height),
+            r: random(4, 12),
+            speed: random(0.5, 2),
+            swing: random(0.5, 1.5)
+        });
+    }
+
+    layoutUI();
+    loadQuestion(0);
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+    layoutUI();
+    if (currentState === STATE_QUIZ) {
+        initQuestionCards(currentQIndex);
+    }
+}
+
+// Calculate UI sizes based on full screen canvas dynamic dimensions
+function layoutUI() {
+    const isMobile = width < 768;
+
+    soundToggleBtn = { x: width - 45, y: 35, r: 20 };
+
+    const graphicH = min(height * 0.28, 220);
+    const graphicY = 85;
+
+    dropZone = {
+        x: width * 0.15,
+        y: graphicY + graphicH + 25,
+        w: width * 0.7,
+        h: isMobile ? 60 : 70
+    };
+
+    const btnW = isMobile ? 110 : 150;
+    const btnH = 45;
+    const btnY = height - 60;
+
+    prevBtn = { x: width * 0.15, y: btnY, w: btnW, h: btnH, label: "上一題" };
+    nextBtn = { x: width * 0.85 - btnW, y: btnY, w: btnW, h: btnH, label: "下一題" };
+    submitBtn = { x: width / 2 - btnW / 2, y: btnY, w: btnW, h: btnH, label: "交卷看成績" };
+    restartBtn = { x: width / 2 - 90, y: height * 0.82, w: 180, h: 50, label: "重新測驗" };
+}
+
+function initQuestionCards(qIdx) {
+    optionCards = [];
+    const q = quizData[qIdx];
+    const isMobile = width < 768;
+
+    const cols = isMobile ? 1 : 2;
+    const rows = isMobile ? 6 : 3;
+
+    const startY = dropZone.y + dropZone.h + 20;
+    const availH = height - startY - 80;
+
+    const cardW = isMobile ? width * 0.88 : min(width * 0.42, 450);
+    const cardH = min(availH / rows - 10, 52);
+
+    for (let i = 0; i < q.options.length; i++) {
+        let col = i % cols;
+        let row = Math.floor(i / cols);
+
+        let gridX = cols === 1 ? width * 0.06 : (col === 0 ? width / 2 - cardW - 15 : width / 2 + 15);
+        let gridY = startY + row * (cardH + 10);
+
+        let textStr = q.options[i];
+        let isAlreadyInDrop = (userAnswers[qIdx] === textStr);
+
+        optionCards.push({
+            id: i,
+            text: textStr,
+            homeX: gridX,
+            homeY: gridY,
+            x: isAlreadyInDrop ? dropZone.x + (dropZone.w - cardW) / 2 : gridX,
+            y: isAlreadyInDrop ? dropZone.y + (dropZone.h - cardH) / 2 : gridY,
+            w: cardW,
+            h: cardH,
+            inDropZone: isAlreadyInDrop,
+            isHovered: false
+        });
+    }
+}
+
+function loadQuestion(idx) {
+    currentQIndex = idx;
+    initQuestionCards(idx);
+}
+
+function draw() {
+    drawAnimatedBackground();
+
+    if (currentState === STATE_START) {
+        drawStartScreen();
+    } else if (currentState === STATE_QUIZ) {
+        drawQuizScreen();
+    } else if (currentState === STATE_RESULT) {
+        drawResultScreen();
+    }
+
+    drawSoundToggle();
+}
+
+// Ambient Dark Ocean Background Animation
+function drawAnimatedBackground() {
+    let c1 = color(10, 25, 47);
+    let c2 = color(15, 52, 96);
+    for (let y = 0; y < height; y += 5) {
+        let inter = map(y, 0, height, 0, 1);
+        stroke(lerpColor(c1, c2, inter));
+        strokeWeight(5);
+        line(0, y, width, y);
+    }
+
+    noStroke();
+    fill(255, 255, 255, 12);
+    waveOffset += 0.015;
+    beginShape();
+    vertex(0, height);
+    for (let x = 0; x <= width; x += 30) {
+        let y = sin(x * 0.005 + waveOffset) * 20 + height * 0.88;
+        vertex(x, y);
+    }
+    vertex(width, height);
+    endShape(CLOSE);
+
+    fill(255, 255, 255, 40);
+    noStroke();
+    for (let b of bubbles) {
+        b.y -= b.speed;
+        b.x += sin(frameCount * 0.02 + b.r) * b.swing * 0.3;
+        if (b.y < -20) {
+            b.y = height + 20;
+            b.x = random(width);
+        }
+        ellipse(b.x, b.y, b.r);
+    }
+}
+
+function drawSoundToggle() {
+    push();
+    translate(soundToggleBtn.x, soundToggleBtn.y);
+    fill(255, 255, 255, 30);
+    stroke(255, 255, 255, 100);
+    strokeWeight(1.5);
+    ellipse(0, 0, soundToggleBtn.r * 2);
+
+    fill(255);
+    noStroke();
+    rect(-10, -5, 6, 10, 2);
+    triangle(-4, -5, 3, -11, 3, 11);
+
+    if (audio.muted) {
+        stroke(255, 80, 80);
+        strokeWeight(3);
+        line(-8, -8, 8, 8);
+    } else {
+        noFill();
+        stroke(255);
+        strokeWeight(2);
+        arc(4, 0, 10, 10, -QUARTER_PI, QUARTER_PI);
+        arc(4, 0, 18, 18, -QUARTER_PI, QUARTER_PI);
+    }
+    pop();
+}
+
+function drawStartScreen() {
+    textAlign(CENTER, CENTER);
+
+    fill(0, 210, 255);
+    textSize(min(width * 0.055, 42));
+    textStyle(BOLD);
+    text("🌊 水域安全達人互動測驗 🌊", width / 2, height * 0.28);
+
+    fill(220, 240, 255);
+    textSize(min(width * 0.028, 20));
+    textStyle(NORMAL);
+    text("學習防溺五步與水域安全知識，快樂戲水平安歸！", width / 2, height * 0.36);
+
+    fill(20, 40, 70, 200);
+    stroke(0, 180, 216);
+    strokeWeight(2);
+    rectMode(CENTER);
+    rect(width / 2, height * 0.54, min(width * 0.8, 550), 160, 15);
+
+    fill(255);
+    textSize(18);
+    textAlign(LEFT, CENTER);
+    let startX = width / 2 - min(width * 0.8, 550) / 2 + 30;
+    text("📌 測驗說明：", startX, height * 0.54 - 50);
+    textSize(15);
+    fill(200, 230, 255);
+    text("1. 全卷共有 4 題情境圖文拖曳題。", startX, height * 0.54 - 20);
+    text("2. 請將正確的答案卡【按住並拖曳】至中央答題框中。", startX, height * 0.54 + 10);
+    text("3. 完成後點擊交卷，總分高於 69 分將解鎖慶祝煙火！", startX, height * 0.54 + 40);
+
+    let btnW = 200, btnH = 55;
+    let btnX = width / 2;
+    let btnY = height * 0.75;
+    let isHover = mouseX > btnX - btnW / 2 && mouseX < btnX + btnW / 2 &&
+                  mouseY > btnY - btnH / 2 && mouseY < btnY + btnH / 2;
+
+    fill(isHover ? color(0, 220, 180) : color(0, 180, 216));
+    noStroke();
+    rect(btnX, btnY, btnW + (isHover ? 10 : 0), btnH + (isHover ? 6 : 0), 30);
+
+    fill(10, 25, 47);
+    textSize(22);
+    textStyle(BOLD);
+    textAlign(CENTER, CENTER);
+    text("開始挑戰 🚀", btnX, btnY);
+}
+
+function drawQuizScreen() {
+    let q = quizData[currentQIndex];
+
+    textAlign(LEFT, CENTER);
+    fill(0, 210, 255);
+    textSize(16);
+    textStyle(BOLD);
+    text(`第 ${currentQIndex + 1} / ${quizData.length} 題`, width * 0.08, 35);
+
+    fill(255);
+    textSize(min(width * 0.032, 20));
+    text(q.title, width * 0.08, 62);
+
+    drawQuestionGraphic(q.graphicType);
+
+    textAlign(CENTER, CENTER);
+    fill(255, 220, 100);
+    textSize(15);
+    textStyle(NORMAL);
+    text(q.prompt, width / 2, dropZone.y - 12);
+
+    push();
+    if (userAnswers[currentQIndex]) {
+        stroke(0, 230, 150);
+        strokeWeight(2);
+        drawingContext.setLineDash([]);
+    } else {
+        stroke(0, 180, 216, 180);
+        strokeWeight(2);
+        drawingContext.setLineDash([6, 6]);
+    }
+    fill(15, 35, 65, 220);
+    rectMode(CORNER);
+    rect(dropZone.x, dropZone.y, dropZone.w, dropZone.h, 12);
+    drawingContext.setLineDash([]);
+    pop();
+
+    if (!userAnswers[currentQIndex] && !draggedCard) {
+        noStroke();
+        fill(255, 255, 255, 90);
+        textSize(16);
+        text("📥 請將下方正確答案卡拖曳至此處", dropZone.x + dropZone.w / 2, dropZone.y + dropZone.h / 2);
+    }
+
+    let topCard = null;
+    for (let card of optionCards) {
+        if (card === draggedCard) {
+            topCard = card;
+            continue;
+        }
+        drawOptionCard(card);
+    }
+    if (topCard) {
+        drawOptionCard(topCard);
+    }
+
+    if (currentQIndex > 0) {
+        drawButton(prevBtn, color(40, 70, 110), color(255));
+    }
+    if (currentQIndex < quizData.length - 1) {
+        drawButton(nextBtn, color(0, 180, 216), color(10, 25, 47));
+    } else {
+        drawButton(submitBtn, color(0, 220, 130), color(10, 25, 47));
+    }
+}
+
+function drawOptionCard(card) {
+    push();
+    rectMode(CORNER);
+    let isHover = card.isHovered || card === draggedCard;
+
+    if (card === draggedCard) {
+        fill(0, 220, 255, 240);
+        stroke(255);
+        strokeWeight(3);
+    } else if (card.inDropZone) {
+        fill(0, 150, 130, 230);
+        stroke(0, 255, 200);
+        strokeWeight(2);
+    } else {
+        fill(isHover ? color(30, 75, 125) : color(20, 50, 85, 220));
+        stroke(isHover ? color(0, 210, 255) : color(0, 150, 200, 120));
+        strokeWeight(1.5);
+    }
+
+    rect(card.x, card.y, card.w, card.h, 10);
+
+    fill(255);
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(min(card.w * 0.045, 15));
+    textStyle(BOLD);
+    text(card.text, card.x + card.w / 2, card.y + card.h / 2);
+    pop();
+}
+
+function drawButton(btn, bgColor, textColor) {
+    push();
+    rectMode(CORNER);
+    let isHover = mouseX > btn.x && mouseX < btn.x + btn.w &&
+                  mouseY > btn.y && mouseY < btn.y + btn.h;
+
+    fill(isHover ? lerpColor(bgColor, color(255), 0.2) : bgColor);
+    stroke(255, 255, 255, 100);
+    strokeWeight(1);
+    rect(btn.x, btn.y, btn.w, btn.h, 25);
+
+    fill(textColor);
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    textStyle(BOLD);
+    text(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
+    pop();
+}
+
+function drawQuestionGraphic(type) {
+    push();
+    const gW = min(width * 0.84, 800);
+    const gH = min(height * 0.28, 220);
+    const gX = width / 2 - gW / 2;
+    const gY = 85;
+
+    rectMode(CORNER);
+    fill(12, 32, 58);
+    stroke(0, 180, 216);
+    strokeWeight(2);
+    rect(gX, gY, gW, gH, 15);
+
+    translate(gX, gY);
+
+    if (type === "RESCUE_SCENE") {
+        fill(15, 60, 110);
+        rect(0, gH * 0.4, gW, gH * 0.6, 0, 0, 15, 15);
+
+        fill(120, 85, 55);
+        rect(0, gH * 0.35, gW * 0.3, gH * 0.65);
+
+        let bob = sin(frameCount * 0.08) * 5;
+        fill(255, 200, 150);
+        ellipse(gW * 0.65, gH * 0.6 + bob, 24, 24);
+        fill(230, 70, 70);
+        arc(gW * 0.65, gH * 0.72 + bob, 30, 20, PI, TWO_PI);
+
+        noFill();
+        stroke(255, 255, 255, 150);
+        arc(gW * 0.65, gH * 0.68 + bob, 45, 12, 0, PI);
+
+        fill(255, 80, 80);
+        noStroke();
+        textSize(14);
+        textStyle(BOLD);
+        text("救命啊！SOS", gW * 0.65 - 35, gH * 0.4 + bob);
+
+        fill(255, 200, 150);
+        ellipse(gW * 0.18, gH * 0.28, 22, 22);
+        fill(0, 180, 216);
+        rect(gW * 0.18 - 8, gH * 0.35, 16, 25, 4);
+
+    } else if (type === "SAFE_ZONE") {
+        fill(10, 80, 140);
+        rect(0, gH * 0.3, gW, gH * 0.7, 0, 0, 15, 15);
+
+        fill(230, 200, 130);
+        rect(0, 0, gW * 0.35, gH);
+
+        stroke(200);
+        strokeWeight(3);
+        line(gW * 0.12, gH * 0.7, gW * 0.15, gH * 0.25);
+        line(gW * 0.22, gH * 0.7, gW * 0.19, gH * 0.25);
+        fill(220, 50, 50);
+        noStroke();
+        rect(gW * 0.12, gH * 0.25, gW * 0.1, 12);
+
+        stroke(255, 200, 0);
+        strokeWeight(2);
+        line(gW * 0.45, gH * 0.5, gW * 0.9, gH * 0.5);
+        for (let bx = gW * 0.48; bx < gW * 0.9; bx += 35) {
+            fill(255, 80, 0);
+            noStroke();
+            ellipse(bx, gH * 0.5 + sin(frameCount * 0.05 + bx) * 3, 12, 12);
+        }
+
+        fill(40, 200, 100);
+        triangle(gW * 0.28, gH * 0.2, gW * 0.28, gH * 0.4, gW * 0.36, gH * 0.3);
+        stroke(255);
+        line(gW * 0.28, gH * 0.2, gW * 0.28, gH * 0.7);
+
+    } else if (type === "RIP_CURRENT") {
+        fill(10, 70, 120);
+        rect(0, 0, gW, gH, 15);
+
+        fill(220, 190, 120);
+        rect(0, gH * 0.75, gW, gH * 0.25, 0, 0, 15, 15);
+
+        stroke(0, 230, 255, 180);
+        strokeWeight(2);
+        let currentY = (frameCount * 2) % (gH * 0.7);
+        for (let xOff = -40; xOff <= 40; xOff += 40) {
+            line(gW * 0.5 + xOff, gH * 0.7 - currentY, gW * 0.5 + xOff, gW * 0.5 - currentY - 20);
+        }
+
+        stroke(50, 255, 120);
+        strokeWeight(3);
+        line(gW * 0.5, gH * 0.25, gW * 0.78, gH * 0.25);
+        triangle(gW * 0.78, gH * 0.22, gW * 0.78, gH * 0.28, gW * 0.83, gH * 0.25);
+
+        noStroke();
+        fill(255, 230, 0);
+        textSize(13);
+        textStyle(BOLD);
+        text("離岸流向外海", gW * 0.5, gH * 0.55);
+        fill(50, 255, 120);
+        text("平行海岸游出 ➔", gW * 0.66, gH * 0.18);
+
+    } else if (type === "EQUIPMENT") {
+        fill(15, 45, 80);
+        rect(0, 0, gW, gH, 15);
+
+        push();
+        translate(gW / 2, gH / 2 + sin(frameCount * 0.04) * 6);
+
+        fill(255, 100, 0);
+        rect(-45, -50, 90, 90, 12);
+        fill(15, 45, 80);
+        rect(-18, -50, 36, 40, 5);
+
+        fill(240, 240, 240);
+        rect(-40, -20, 25, 12);
+        rect(15, -20, 25, 12);
+
+        stroke(20);
+        strokeWeight(3);
+        line(-42, 10, 42, 10);
+        line(-42, 25, 42, 25);
+        fill(255, 215, 0);
+        noStroke();
+        rect(-8, 5, 16, 10);
+        rect(-8, 20, 16, 10);
+
+        pop();
+
+        fill(0, 210, 255);
+        textSize(15);
+        textStyle(BOLD);
+        textAlign(CENTER, CENTER);
+        text("合格救生衣 (扣緊安全扣環)", gW / 2, gH - 22);
+    }
+
+    pop();
+}
+
+function drawResultScreen() {
+    let correctCount = 0;
+    for (let i = 0; i < quizData.length; i++) {
+        let q = quizData[i];
+        if (userAnswers[i] === q.options[q.correctIndex]) {
+            correctCount++;
+        }
+    }
+    let percentage = Math.round((correctCount / quizData.length) * 100);
+    let passed = percentage > 69;
+
+    if (passed) {
+        if (random(1) < 0.08) {
+            fireworks.push(new Firework());
+        }
+        for (let i = fireworks.length - 1; i >= 0; i--) {
+            fireworks[i].update();
+            fireworks[i].show();
+            if (fireworks[i].done()) {
+                fireworks.splice(i, 1);
+            }
+        }
+    }
+
+    fill(15, 35, 65, 230);
+    stroke(passed ? color(0, 230, 150) : color(255, 100, 100));
+    strokeWeight(3);
+    rectMode(CENTER);
+    rect(width / 2, height * 0.44, min(width * 0.9, 700), height * 0.62, 20);
+
+    textAlign(CENTER, CENTER);
+
+    fill(passed ? color(0, 230, 150) : color(255, 100, 100));
+    textSize(min(width * 0.05, 36));
+    textStyle(BOLD);
+    text(passed ? "🎉 恭喜通關！水域安全達人！" : "💪 加油！再試一次會更好！", width / 2, height * 0.2);
+
+    fill(255);
+    textSize(24);
+    text(`您的測驗總得分： ${percentage} 分`, width / 2, height * 0.28);
+
+    textSize(16);
+    fill(200, 230, 255);
+    textStyle(NORMAL);
+    if (passed) {
+        text("太棒了！您具備了非常良好的水域安全與自救常識！", width / 2, height * 0.33);
+    } else {
+        text("沒關係，多複習救溺五步與防溺宣導，下次一定能過關！", width / 2, height * 0.33);
+    }
+
+    let startY = height * 0.38;
+    rectMode(CORNER);
+    for (let i = 0; i < quizData.length; i++) {
+        let isRight = (userAnswers[i] === quizData[i].options[quizData[i].correctIndex]);
+        let boxY = startY + i * (height * 0.09);
+
+        fill(isRight ? color(20, 60, 50, 200) : color(70, 30, 40, 200));
+        stroke(isRight ? color(0, 200, 120) : color(230, 70, 70));
+        strokeWeight(1);
+        rect(width / 2 - min(width * 0.82, 640) / 2, boxY, min(width * 0.82, 640), height * 0.075, 8);
+
+        fill(255);
+        textAlign(LEFT, CENTER);
+        textSize(min(width * 0.03, 14));
+        let icon = isRight ? "✅" : "❌";
+        text(`${icon} 題 ${i + 1}: ${quizData[i].title.substring(0, 22)}...`, width / 2 - min(width * 0.82, 640) / 2 + 15, boxY + height * 0.037);
+
+        fill(isRight ? color(150, 255, 200) : color(255, 180, 180));
+        textSize(min(width * 0.025, 12));
+        text(`解答: ${quizData[i].options[quizData[i].correctIndex]}`, width / 2 - min(width * 0.82, 640) / 2 + 15, boxY + height * 0.058);
+    }
+
+    drawButton(restartBtn, color(0, 180, 216), color(10, 25, 47));
+}
+
+function mousePressed() {
+    handlePress(mouseX, mouseY);
+}
+
+function touchStarted() {
+    if (touches.length > 0) {
+        handlePress(touches[0].x, touches[0].y);
+    }
+    return false;
+}
+
+function handlePress(mx, my) {
+    let dSound = dist(mx, my, soundToggleBtn.x, soundToggleBtn.y);
+    if (dSound < soundToggleBtn.r) {
+        audio.muted = !audio.muted;
+        return;
+    }
+
+    if (currentState === STATE_START) {
+        let btnW = 200, btnH = 55;
+        if (mx > width / 2 - btnW / 2 && mx < width / 2 + btnW / 2 &&
+            my > height * 0.75 - btnH / 2 && my < height * 0.75 + btnH / 2) {
+            currentState = STATE_QUIZ;
+            audio.playSuccess();
+        }
+    } else if (currentState === STATE_QUIZ) {
+        for (let card of optionCards) {
+            if (mx > card.x && mx < card.x + card.w &&
+                my > card.y && my < card.y + card.h) {
+                draggedCard = card;
+                dragOffsetX = mx - card.x;
+                dragOffsetY = my - card.y;
+                audio.playPick();
+                break;
+            }
+        }
+
+        if (currentQIndex > 0 && isInside(mx, my, prevBtn)) {
+            loadQuestion(currentQIndex - 1);
+            audio.playTone(400, 'sine', 0.1);
+        } else if (currentQIndex < quizData.length - 1 && isInside(mx, my, nextBtn)) {
+            loadQuestion(currentQIndex + 1);
+            audio.playTone(500, 'sine', 0.1);
+        } else if (currentQIndex === quizData.length - 1 && isInside(mx, my, submitBtn)) {
+            currentState = STATE_RESULT;
+            audio.playSuccess();
+        }
+    } else if (currentState === STATE_RESULT) {
+        if (isInside(mx, my, restartBtn)) {
+            userAnswers.fill(null);
+            currentState = STATE_QUIZ;
+            loadQuestion(0);
+            audio.playSuccess();
+        }
+    }
+}
+
+function mouseDragged() {
+    handleDrag(mouseX, mouseY);
+}
+
+function touchMoved() {
+    if (touches.length > 0) {
+        handleDrag(touches[0].x, touches[0].y);
+    }
+    return false;
+}
+
+function handleDrag(mx, my) {
+    if (draggedCard) {
+        draggedCard.x = mx - dragOffsetX;
+        draggedCard.y = my - dragOffsetY;
+    }
+}
+
+function mouseReleased() {
+    handleRelease();
+}
+
+function touchEnded() {
+    handleRelease();
+}
+
+function handleRelease() {
+    if (draggedCard) {
+        let cardCenterX = draggedCard.x + draggedCard.w / 2;
+        let cardCenterY = draggedCard.y + draggedCard.h / 2;
+
+        if (cardCenterX > dropZone.x && cardCenterX < dropZone.x + dropZone.w &&
+            cardCenterY > dropZone.y && cardCenterY < dropZone.y + dropZone.h) {
+
+            for (let c of optionCards) {
+                if (c.inDropZone) {
+                    c.inDropZone = false;
+                    c.x = c.homeX;
+                    c.y = c.homeY;
+                }
+            }
+
+            draggedCard.inDropZone = true;
+            draggedCard.x = dropZone.x + (dropZone.w - draggedCard.w) / 2;
+            draggedCard.y = dropZone.y + (dropZone.h - draggedCard.h) / 2;
+            userAnswers[currentQIndex] = draggedCard.text;
+            audio.playDrop();
+        } else {
+            draggedCard.inDropZone = false;
+            draggedCard.x = draggedCard.homeX;
+            draggedCard.y = draggedCard.homeY;
+            if (userAnswers[currentQIndex] === draggedCard.text) {
+                userAnswers[currentQIndex] = null;
+            }
+        }
+        draggedCard = null;
+    }
+}
+
+function mouseMoved() {
+    if (currentState === STATE_QUIZ) {
+        for (let card of optionCards) {
+            card.isHovered = (mouseX > card.x && mouseX < card.x + card.w &&
+                              mouseY > card.y && mouseY < card.y + card.h);
+        }
+    }
+}
+
+function isInside(x, y, btn) {
+    return x > btn.x && x < btn.x + btn.w && y > btn.y && y < btn.y + btn.h;
+}
+
+class Particle {
+    constructor(x, y, hu, firework) {
+        this.pos = createVector(x, y);
+        this.firework = firework;
+        this.lifespan = 255;
+        this.hu = hu;
+        this.acc = createVector(0, 0);
+
+        if (this.firework) {
+            this.vel = createVector(random(-1, 1), random(-12, -7));
+        } else {
+            this.vel = p5.Vector.random2D();
+            this.vel.mult(random(2, 10));
+        }
+    }
+
+    applyForce(force) {
+        this.acc.add(force);
+    }
+
+    update() {
+        if (!this.firework) {
+            this.vel.mult(0.92);
+            this.lifespan -= 4;
+        }
+        this.vel.add(this.acc);
+        this.pos.add(this.vel);
+        this.acc.mult(0);
+    }
+
+    done() {
+        return this.lifespan < 0;
+    }
+
+    show() {
+        colorMode(HSB);
+        if (!this.firework) {
+            strokeWeight(3);
+            stroke(this.hu, 255, 255, this.lifespan / 255);
+        } else {
+            strokeWeight(5);
+            stroke(this.hu, 255, 255);
+        }
+        point(this.pos.x, this.pos.y);
+        colorMode(RGB);
+    }
+}
+
+class Firework {
+    constructor() {
+        this.hu = random(360);
+        this.firework = new Particle(random(width * 0.1, width * 0.9), height, this.hu, true);
+        this.exploded = false;
+        this.particles = [];
+        audio.playFirework();
+    }
+
+    done() {
+        return this.exploded && this.particles.length === 0;
+    }
+
+    update() {
+        if (!this.exploded) {
+            this.firework.applyForce(gravity);
+            this.firework.update();
+
+            if (this.firework.vel.y >= 0) {
+                this.exploded = true;
+                this.explode();
+            }
+        }
+
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            this.particles[i].applyForce(gravity);
+            this.particles[i].update();
+            if (this.particles[i].done()) {
+                this.particles.splice(i, 1);
+            }
+        }
+    }
+
+    explode() {
+        for (let i = 0; i < 60; i++) {
+            let p = new Particle(this.firework.pos.x, this.firework.pos.y, this.hu, false);
+            this.particles.push(p);
+        }
+    }
+
+    show() {
+        if (!this.exploded) {
+            this.firework.show();
+        }
+        for (let i = 0; i < this.particles.length; i++) {
+            this.particles[i].show();
+        }
+    }
+}
+</script>
+</body>
+</html>
